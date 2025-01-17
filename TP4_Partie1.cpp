@@ -2,6 +2,11 @@
 #include <cmath>
 #include <tuple>
 #include <algorithm>
+#include <cassert>
+#include <sstream>
+#include <utility>
+#include <array>
+#include <ostream>
 
 //--------------------------------------------------------------------------------------
 /*
@@ -109,103 +114,208 @@ namespace et
     // Affiche un node en demandant Ã  Op d'afficher les sous arbres
     std::ostream& print(std::ostream& os) const
     {
-      os << "(";
-      std::apply(
-        [&](const auto&... children) {
-          ((children.print(os), os << ","), ...);
+      auto arr = std::apply(
+        [&](auto const&... child){
+          return std::array<std::string, sizeof...(Children)>{
+            to_string(child)...
+          };
         },
         children
       );
-      os << ")";
-      return os; 
+
+      // On décompose le tableau pour que op.print recoive chaque chaîne séparément
+      return std::apply(
+        [&](auto const&... s) -> std::ostream& {
+          return op.print(os, s...);
+        },
+        arr
+      );
     }
-    
+
+    // Helper qui convertit un enfant (terminal ou node) en string
+    static std::string to_string(auto const& sub)
+    {
+    std::ostringstream s;
+    sub.print(s);
+    return s.str();
+    }
+
     // Op est stockÃ©e par valeur
     // les Children... sont stockÃ©es dans un tuple
     Op  op;
     std::tuple<Children...>  children;
   };
 
+  //----------------------------------------------
+  /*
+    add_ est un exemple de type d'operation passable Ã  un node
+    Il fournit un operator() qui effectue le calcul et une fonction
+    print qui affiche le node.
+  */
+  //----------------------------------------------
+  struct add_ 
+  {
+    constexpr auto operator()(auto a, auto b) const
+    {
+      return a + b;
+    }
+
+    std::ostream& print(std::ostream& os, auto a, auto b) const
+    {
+      return os << a << " + " << b ;
+    }
+  };
+  
+  // On lui associe un operator+ qui consomme des expr et renvoit le node
+  template<expr L, expr R>
+  constexpr auto operator+(L l, R r)
+  {
+    return node{add_{}, l, r};
+  }
+
+  /*
+    Q4. Sur le modÃ¨le de add_, implÃ©mentez 
+      - mul_ et un operator* pour la multiplication
+      - abs_ et une fonction abs pour le calcul de la valeur absolue
+      - fma_ et une fonction fma(a,b,c) qui calcul a*b+c
+  */
+struct mul_ 
+  {
+    constexpr auto operator()(auto a, auto b) const
+    {
+      return a * b;
+    }
+
+    std::ostream& print(std::ostream& os, auto a, auto b) const
+    {
+      return os << a << " * " << b ;
+    }
+  };
+
+  template<expr L, expr R>
+  constexpr auto operator*(L l, R r)
+  {
+    return node{mul_{}, l, r};
+  }
+
+  struct abs_
+  {
+    constexpr auto operator()(auto a) const
+    {
+      return std::abs(a);
+    }
+
+    std::ostream& print(std::ostream& os, auto a) const
+    {
+      return os << "|" << a << "|";
+    }
+  };
+
+  template<expr L>
+  constexpr auto abs(L l)
+  {
+    return node{abs_{}, l};
+  }
+
+  struct fma_
+  {
+    constexpr auto operator()(auto a, auto b, auto c) const
+    {
+      return a * b + c;
+    }
+
+    std::ostream& print(std::ostream& os, auto a, auto b, auto c) const
+    {
+      return os << a << " * " << b << " + " << c;
+    }
+  };
+
+  template<expr A, expr B, expr C>
+  constexpr auto fma(A a, B b, C c)
+  {
+    return node{fma_{}, a, b, c};
+  }
 
 }  
-int main()
+int main() 
 {
-    using namespace et;
     
-    //*********************************** TESTS TERMINAL *****************************************//
-    // Test de la structure terminal
-    terminal<0> t0;
-    terminal<1> t1;
-    terminal<2> t2;
-
-    // Affichage des terminaux
-    std::cout << "Affichage des terminaux:" << std::endl;
-    t0.print(std::cout) << std::endl;
-    t1.print(std::cout) << std::endl;
-    t2.print(std::cout) << std::endl;
-
-    // Test de l'opérateur ()
-    std::cout << "\nTests de l'opérateur () :" << std::endl;
-    auto value0 = t0(42, 3.14, "Hello");
-    std::cout << "Value0: " << value0 << std::endl; // Devrait afficher 42
-
-    auto value1 = t1(42, 3.14, "Hello");
-    std::cout << "Value1: " << value1 << std::endl; // Devrait afficher 3.14
-
-    auto value2 = t2(42, 3.14, "Hello");
-    std::cout << "Value2: " << value2 << std::endl; // Devrait afficher "Hello"
-
-    // Test avec les variables prédéfinies
-    std::cout << "\nTests avec les variables prédéfinies :" << std::endl;
-    std::cout << "_0: " << _0(1, 2, 3) << std::endl; // Devrait afficher 1
-    std::cout << "_1: " << _1(1, 2, 3) << std::endl; // Devrait afficher 2
-    std::cout << "_2: " << _2(1, 2, 3) << std::endl; // Devrait afficher 3
-
-    // Tests supplémentaires
-    std::cout << "\nTests supplémentaires :" << std::endl;
-
-    // Test avec des types différents
-    auto mixedValue = _1("First", 3.14159, 42);
-    std::cout << "MixedValue (_1): " << mixedValue << std::endl; // Devrait afficher 3.14159
-
-    // Test avec une seule variable
-    auto singleValue = _0(99);
-    std::cout << "SingleValue (_0): " << singleValue << std::endl; // Devrait afficher 99
-
-    // Test hors limites (compile-time error attendue si on active cette ligne)
-    // auto outOfBounds = _3(1, 2, 3); // _3 n'existe pas
-
-    // Test avec un nombre élevé d'arguments
-    //auto manyArgsValue = _3(10, 20, 30, 40, 50, 60);
-    //std::cout << "ManyArgsValue (_3): " << manyArgsValue << std::endl; // Devrait afficher 40
-
-    // Test avec une fonction lambda pour valider l'usage avancé
-    auto lambdaValue = _2([] { return "Lambda"; }, "Second", 3.14);
-    std::cout << "LambdaValue (_2): " << lambdaValue << std::endl; // Devrait afficher 3.14
+    // TESTS SUJETS 
     
-    //*********************************** TESTS NODE *****************************************//
+    constexpr auto f = et::fma(et::_1, abs(et::_2),et::_0);
+    f.print(std::cout) << "\n";
+    std::cout << f(1,2,3) << "\n";
     
-    // Opérateur d'addition pour les tests
-    auto op_add = [](auto a, auto b) { return a + b; };
-
-    // Construction de noeuds simples
-    node add_node(op_add, _0, _1);
-
-    // Test d'évaluation
-    std::cout << "Evaluation: " << add_node(3, 7) << std::endl; // Devrait afficher 10
-
-    // Test d'affichage
-    std::cout << "Affichage du node: ";
-    add_node.print(std::cout);
-    std::cout << std::endl;
-
-    // Tests imbriqués
-    node nested_node(op_add, add_node, _2);
-    std::cout << "Evaluation imbriquée: " << nested_node(1, 2, 3) << std::endl; // Devrait afficher 6 (1+2+3)
-
-    std::cout << "Affichage du node imbriqué: ";
-    nested_node.print(std::cout);
-    std::cout << std::endl;
+    // Testing fma operation
+    std::cout << "#### fma operation testing : " << "\n";
     
+    // Test fma with absolute value
+    constexpr auto expr_fma_1 = et::fma(et::_1, abs(et::_2), et::_0);
+    expr_fma_1.print(std::cout) << "\n";
+    
+    std::cout << "Testing fma(1, 2, 3) = " << expr_fma_1(1, 2, 3) << "\n";
+    assert(expr_fma_1(1, 2, 3) == 7); // Expected: 7
+    
+    std::cout << "Testing fma(1, 2, -3) = " << expr_fma_1(1, 2, -3) << "\n";
+    assert(expr_fma_1(1, 2, -3) == 7); // Expected: 7
+
+    // Test fma without absolute value
+    constexpr auto expr_fma_2 = et::fma(et::_1, et::_2, et::_1);
+    expr_fma_2.print(std::cout) << "\n";
+    
+    std::cout << "Testing fma(1, 2, 3) = " << expr_fma_2(1, 2, 3) << "\n";
+    assert(expr_fma_2(1, 2, 3) == 8); // Expected: 8
+    
+    std::cout << "Testing fma(1, 2, -3) = " << expr_fma_2(1, 2, -3) << "\n";
+    assert(expr_fma_2(1, 2, -3) == -4); // Expected: -4
+
+    std::cout << "\n" << "#### addition testing : " << "\n";
+    
+    // Test addition expression
+    constexpr auto sum_expr = et::_0 + et::_1;
+    sum_expr.print(std::cout) << "\n";
+    
+    std::cout << "Testing sum(3, 6) = " << sum_expr(3, 6) << "\n";
+    assert(sum_expr(3, 6) == 9); // Expected: 9
+    
+    std::cout << "Testing sum(-4, 3) = " << sum_expr(-4, 3) << "\n";
+    assert(sum_expr(-4, 3) == -1); // Expected: -1
+    
+    std::cout << "Testing sum(-4.2, 5.7) = " << sum_expr(-4.2, 5.7) << "\n";
+    assert(std::abs(sum_expr(-4.2, 5.7) - 1.5) < 1e-12); // Expected: 1.5
+    
+    std::cout << "Testing sum(-4.2, 3) = " << sum_expr(-4.2, 3) << "\n";
+    assert(std::abs(sum_expr(-4.2, 3) + 1.2) < 1e-12); // Expected: 1.2
+
+    std::cout << "\n" << "#### multiplication testing : " << "\n";
+    
+    // Test multiplication expression
+    constexpr auto product_expr = et::_0 * et::_1;
+    product_expr.print(std::cout) << "\n";
+    
+    std::cout << "Testing product(3, 6) = " << product_expr(3, 6) << "\n";
+    assert(product_expr(3, 6) == 18); // Expected: 18
+    
+    std::cout << "Testing product(-4, 7) = " << product_expr(-4, 7) << "\n";
+    assert(product_expr(-4, 7) == -28); // Expected: -28
+    
+    std::cout << "Testing product(3.4, 6.5) = " << product_expr(3.4, 6.5) << "\n";
+    assert(std::abs(product_expr(3.4, 6.5) - 22.1) < 1e-12); // Expected: 22.1
+    
+    std::cout << "Testing product(-4, 7.2) = " << product_expr(-4, 7.2) << "\n";
+    assert(std::abs(product_expr(-4, 7.2) + 28.8) < 1e-12); // Expected: 28.8
+
+    std::cout << "\n" << "#### combination of operations : " << "\n";
+    
+    // Combining operations: fma and multiplication
+    constexpr auto combined_expr = et::fma(et::_0, et::_1, et::_2);
+    combined_expr.print(std::cout) << "\n";
+    product_expr.print(std::cout) << "\n";
+    
+    std::cout << "Evaluating combined expression fma(1, 2, product(3, 5)) = " 
+              << combined_expr(1, 2, product_expr(3, 5)) << "\n";
+    assert(combined_expr(1, 2, product_expr(3, 5)) == 17); // Expected: 17
+
     return 0;
 }
+
